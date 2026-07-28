@@ -1,21 +1,4 @@
-name: Auto Update Market Data
-
-on:
-schedule:
-- cron: '0 7 * * *'
-workflow_dispatch:
-
-permissions:
-contents: write
-
-jobs:
-update-data:
-runs-on: ubuntu-latest
-steps:
-- name: Checkout repository
-uses: actions/checkout@v3
-
-  - name: Set up Python
+name: Auto Update Market Dataon:schedule:- cron: '0 7 * * *'workflow_dispatch:permissions:contents: writejobs:update-data:runs-on: ubuntu-lateststeps:- name: Checkout repositoryuses: actions/checkout@v3  - name: Set up Python
     uses: actions/setup-python@v4
     with:
       python-version: '3.10'

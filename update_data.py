@@ -40,7 +40,9 @@ def fetch_real_market_data():
         data["maBiasRatio"] = round(((current_twii / ma60) - 1) * 100, 2)
         
         # [真實計算] 巴菲特指標 (修正版：總市值 / GDP * 100)
+        # 台灣大盤 1 點大約等同於 3.2 億台幣市值，換算為兆元
         market_cap_trillions = current_twii * 0.00032
+        # 台灣 2024 全年 GDP 預估約 24.5 兆台幣
         taiwan_gdp_trillions = 24.5
         data["buffettIndicator"] = round((market_cap_trillions / taiwan_gdp_trillions) * 100, 1)
 

@@ -2,6 +2,7 @@ name: Auto Update Market Data
 
 on:
   schedule:
+    # 設定為每 30 分鐘執行一次
     - cron: '*/30 * * * *'
   workflow_dispatch:
 

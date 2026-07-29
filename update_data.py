@@ -2,6 +2,7 @@ import requests
 import yfinance as yf
 import pandas as pd
 import json
+import math  # 🚀 新增 math 模組來判斷 NaN
 from datetime import datetime
 import pytz
 import os
@@ -24,6 +25,7 @@ def main():
             
         current_twii = hist_twii['Close'].iloc[-1]
         ma60_twii = hist_twii['Close'].rolling(window=60).mean().iloc[-1]
+        
         # 計算季線乖離率
         bias_ratio = ((current_twii - ma60_twii) / ma60_twii) * 100
         data["maBiasRatio"] = round(bias_ratio, 2)
@@ -92,6 +94,12 @@ def main():
 
         # 大戶流向 (隨 ADR 與 大盤連動)
         data["bigWhaleHoldingRatio"] = round(today_change_pct * 1.5, 2)
+
+        # 🚀 殺手鐧：清洗數據，將所有 NaN 強制轉換為 None (JSON 的 null)
+        # 防止 APP 解析崩潰出現 Unexpected character: N
+        for key, value in data.items():
+            if isinstance(value, float) and math.isnan(value):
+                data[key] = None
 
         print(f"✅ 計算完成！即將寫入檔案: {data}")
         with open('today_market.json', 'w', encoding='utf-8') as f:

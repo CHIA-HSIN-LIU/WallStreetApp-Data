@@ -47,29 +47,42 @@ def main():
             print(f"  ⚠️ ADR 抓取失敗: {e}，啟用備援推算")
             data["tsmcAdrPremium"] = round(bias_ratio * 1.5, 2)
 
-        print("3. 抓取外資期貨空單...")
-        foreign_shorts = 0
+        print("3. 抓取外資期貨空單 (精準版)...")
+        foreign_shorts = None  # 預設為 None，抓不到就回傳空值，不亂猜數字
         try:
             url = "https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TXX"
-            res = requests.get(url, timeout=10)
+            # 增加 Header 偽裝成正常瀏覽器，防止 GitHub IP 被擋
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            res = requests.get(url, headers=headers, timeout=10)
             json_data = res.json()
+            
             if json_data.get('msg') == 'success' and len(json_data.get('data', [])) > 0:
                 df_fut = pd.DataFrame(json_data['data'])
-                # 強烈防呆：確認欄位存在且不為空
-                if 'name' in df_fut.columns and 'open_interest_net_qty' in df_fut.columns:
-                    foreign_fut = df_fut[df_fut['name'] == '外資及陸資']
+                
+                # 強烈防呆：確認必要欄位都在
+                if 'name' in df_fut.columns and 'open_interest_net_qty' in df_fut.columns and 'date' in df_fut.columns:
+                    # 篩選出外資
+                    foreign_fut = df_fut[df_fut['name'] == '外資及陸資'].copy()
+                    
                     if not foreign_fut.empty:
-                        foreign_shorts = int(foreign_fut.iloc[-1]['open_interest_net_qty'])
+                        # 強制照日期排序，確保抓到的是最新一天，而不是歷史爛帳
+                        foreign_fut = foreign_fut.sort_values(by='date')
+                        latest_data = foreign_fut.iloc[-1]
+                        
+                        foreign_shorts = int(latest_data['open_interest_net_qty'])
+                        print(f"  => 成功取得外資期貨淨部位: {foreign_shorts} 口 (結算日期: {latest_data['date']})")
                     else:
                         raise ValueError("找不到外資及陸資數據")
                 else:
-                    raise ValueError("API回傳格式缺漏欄位")
+                    raise ValueError("API回傳格式缺漏必要欄位")
             else:
                 raise ValueError("API回傳錯誤或無數據")
         except Exception as e:
-            print(f"  ⚠️ 外資空單抓取失敗: {e}，啟用備援公式")
-            # 備援機制：如果大盤跌(乖離低)，外資空單通常很多(負數)；大盤漲，空單減少。
-            foreign_shorts = int(-18000 + (bias_ratio * 1500))
+            # 移除所有數學備援公式，抓不到就是抓不到，保證數據純潔性
+            print(f"  ⚠️ 外資空單抓取失敗: {e}，取消備援公式，將回傳 null")
+            foreign_shorts = None
         
         data["foreignShorts"] = foreign_shorts
 
@@ -96,7 +109,6 @@ def main():
         data["bigWhaleHoldingRatio"] = round(today_change_pct * 1.5, 2)
 
         # 🚀 殺手鐧：清洗數據，將所有 NaN 強制轉換為 None (JSON 的 null)
-        # 防止 APP 解析崩潰出現 Unexpected character: N
         for key, value in data.items():
             if isinstance(value, float) and math.isnan(value):
                 data[key] = None

@@ -44,11 +44,10 @@ def main():
             print(f"  ⚠️ ADR 抓取失敗: {e}，啟用備援推算")
             data["tsmcAdrPremium"] = round(bias_ratio * 1.5, 2)
 
-        print("3. 抓取外資期貨空單 (料號修正版)...")
+        print("3. 抓取外資期貨空單 (欄位自適應版)...")
         foreign_shorts = None
         try:
             start_date = (now - timedelta(days=10)).strftime("%Y-%m-%d")
-            # 💡 致命錯誤修正：把 data_id=TXX 改成正確的代號 data_id=TX
             url = f"https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TX&start_date={start_date}"
             
             headers = {
@@ -64,17 +63,29 @@ def main():
             if json_data.get('msg') == 'success':
                 if len(json_data.get('data', [])) > 0:
                     df_fut = pd.DataFrame(json_data['data'])
-                    if 'name' in df_fut.columns and 'open_interest_net_qty' in df_fut.columns and 'date' in df_fut.columns:
+                    
+                    # 💡 檢查必要的最基本欄位 (日期與名稱)
+                    if 'name' in df_fut.columns and 'date' in df_fut.columns:
                         foreign_fut = df_fut[df_fut['name'] == '外資及陸資'].copy()
                         if not foreign_fut.empty:
                             foreign_fut = foreign_fut.sort_values(by='date')
                             latest_data = foreign_fut.iloc[-1]
-                            foreign_shorts = int(latest_data['open_interest_net_qty'])
+                            
+                            # 💡 欄位自適應：如果沒有現成的淨額欄位，我們自己用 (多單 - 空單) 算
+                            if 'open_interest_net_qty' in latest_data:
+                                foreign_shorts = int(latest_data['open_interest_net_qty'])
+                            elif 'long_open_interest' in latest_data and 'short_open_interest' in latest_data:
+                                foreign_shorts = int(latest_data['long_open_interest']) - int(latest_data['short_open_interest'])
+                            else:
+                                print(f"  ⚠️ 找不到部位數據！實際收到的資料長這樣: {latest_data.to_dict()}")
+                                raise ValueError("無法計算淨部位")
+                            
                             print(f"  => 成功取得外資期貨淨部位: {foreign_shorts} 口 (結算日期: {latest_data['date']})")
                         else:
                             raise ValueError("有撈到資料，但裡面沒有'外資及陸資'的項目")
                     else:
-                        raise ValueError("API回傳格式缺漏必要欄位")
+                        print(f"  ⚠️ 欄位不符預期！實際收到的欄位有: {list(df_fut.columns)}")
+                        raise ValueError("API回傳格式缺漏 date 或 name")
                 else:
                     print(f"  ⚠️ FinMind 說 success，但 data 陣列是空的！")
                     raise ValueError("查無指定日期範圍內的資料")
@@ -88,7 +99,7 @@ def main():
         
         data["foreignShorts"] = foreign_shorts
 
-        print("4. 計算融 ক্ষমতায়與市場寬度...")
+        print("4. 計算融資與市場寬度...")
         try:
             today_change_pct = ((current_twii - hist_twii['Close'].iloc[-2]) / hist_twii['Close'].iloc[-2]) * 100
         except:

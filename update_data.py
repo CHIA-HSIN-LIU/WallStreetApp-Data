@@ -2,8 +2,8 @@ import requests
 import yfinance as yf
 import pandas as pd
 import json
-import math  # 🚀 新增 math 模組來判斷 NaN
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
 import pytz
 import os
 
@@ -17,7 +17,6 @@ def main():
         print(f"啟動【強固型真實數據】爬蟲引擎 (時間: {data['updateTime']})...")
 
         print("1. 抓取真實大盤 (TAIEX)...")
-        # 取得大盤 (^TWII)
         twii = yf.Ticker("^TWII")
         hist_twii = twii.history(period="65d")
         if hist_twii.empty:
@@ -26,12 +25,10 @@ def main():
         current_twii = hist_twii['Close'].iloc[-1]
         ma60_twii = hist_twii['Close'].rolling(window=60).mean().iloc[-1]
         
-        # 計算季線乖離率
         bias_ratio = ((current_twii - ma60_twii) / ma60_twii) * 100
         data["maBiasRatio"] = round(bias_ratio, 2)
         print(f"  => 當前大盤: {current_twii:.2f}, 乖離率: {bias_ratio:.2f}%")
 
-        # 真實巴菲特指標 (2026年 39000點，總市值約 124兆，GDP約 26.5兆)
         estimated_market_cap = (current_twii / 39000) * 124
         buffett_indicator = (estimated_market_cap / 26.5) * 100
         data["buffettIndicator"] = round(buffett_indicator, 1)
@@ -47,68 +44,69 @@ def main():
             print(f"  ⚠️ ADR 抓取失敗: {e}，啟用備援推算")
             data["tsmcAdrPremium"] = round(bias_ratio * 1.5, 2)
 
-        print("3. 抓取外資期貨空單 (精準版)...")
-        foreign_shorts = None  # 預設為 None，抓不到就回傳空值，不亂猜數字
+        print("3. 抓取外資期貨空單 (除錯進化版)...")
+        foreign_shorts = None
         try:
-            url = "https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TXX"
-            # 增加 Header 偽裝成正常瀏覽器，防止 GitHub IP 被擋
+            # 💡 升級點 1：增加 start_date，往前推 10 天，逼迫 API 吐出最近的資料
+            start_date = (now - timedelta(days=10)).strftime("%Y-%m-%d")
+            url = f"https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TXX&start_date={start_date}"
+            
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
             res = requests.get(url, headers=headers, timeout=10)
+            
+            if res.status_code != 200:
+                raise ValueError(f"HTTP 連線異常，狀態碼: {res.status_code}")
+                
             json_data = res.json()
             
-            if json_data.get('msg') == 'success' and len(json_data.get('data', [])) > 0:
-                df_fut = pd.DataFrame(json_data['data'])
-                
-                # 強烈防呆：確認必要欄位都在
-                if 'name' in df_fut.columns and 'open_interest_net_qty' in df_fut.columns and 'date' in df_fut.columns:
-                    # 篩選出外資
-                    foreign_fut = df_fut[df_fut['name'] == '外資及陸資'].copy()
-                    
-                    if not foreign_fut.empty:
-                        # 強制照日期排序，確保抓到的是最新一天，而不是歷史爛帳
-                        foreign_fut = foreign_fut.sort_values(by='date')
-                        latest_data = foreign_fut.iloc[-1]
-                        
-                        foreign_shorts = int(latest_data['open_interest_net_qty'])
-                        print(f"  => 成功取得外資期貨淨部位: {foreign_shorts} 口 (結算日期: {latest_data['date']})")
+            if json_data.get('msg') == 'success':
+                if len(json_data.get('data', [])) > 0:
+                    df_fut = pd.DataFrame(json_data['data'])
+                    if 'name' in df_fut.columns and 'open_interest_net_qty' in df_fut.columns and 'date' in df_fut.columns:
+                        foreign_fut = df_fut[df_fut['name'] == '外資及陸資'].copy()
+                        if not foreign_fut.empty:
+                            foreign_fut = foreign_fut.sort_values(by='date')
+                            latest_data = foreign_fut.iloc[-1]
+                            foreign_shorts = int(latest_data['open_interest_net_qty'])
+                            print(f"  => 成功取得外資期貨淨部位: {foreign_shorts} 口 (結算日期: {latest_data['date']})")
+                        else:
+                            raise ValueError("有撈到資料，但裡面沒有'外資及陸資'的項目")
                     else:
-                        raise ValueError("找不到外資及陸資數據")
+                        raise ValueError("API回傳格式缺漏必要欄位")
                 else:
-                    raise ValueError("API回傳格式缺漏必要欄位")
+                    print(f"  ⚠️ FinMind 說 success，但 data 陣列是空的！")
+                    raise ValueError("查無指定日期範圍內的資料")
             else:
-                raise ValueError("API回傳錯誤或無數據")
+                # 💡 升級點 2：直接把 FinMind 拒絕的原始對話印出來
+                print(f"  ⚠️ FinMind API 拒絕請求，官方回傳內容: {json_data}")
+                raise ValueError("API 拒絕提供資料")
+                
         except Exception as e:
-            # 移除所有數學備援公式，抓不到就是抓不到，保證數據純潔性
-            print(f"  ⚠️ 外資空單抓取失敗: {e}，取消備援公式，將回傳 null")
+            print(f"  ⚠️ 外資空單抓取失敗: {e}，將回傳 null")
             foreign_shorts = None
         
         data["foreignShorts"] = foreign_shorts
 
         print("4. 計算融資與市場寬度...")
-        # 判斷今日大盤漲跌幅來決定恐慌情緒
         try:
             today_change_pct = ((current_twii - hist_twii['Close'].iloc[-2]) / hist_twii['Close'].iloc[-2]) * 100
         except:
             today_change_pct = 0
 
-        # 融資維持率公式：隨乖離率浮動，若單日大跌扣除恐慌值
         base_margin = 160 + (bias_ratio * 2.5)
         if today_change_pct < -1.5:
-            base_margin -= abs(today_change_pct) * 5 # 暴跌暴扣
+            base_margin -= abs(today_change_pct) * 5 
         data["marginMaintenance"] = round(max(125.0, base_margin), 1)
 
-        # 市場寬度公式：若大盤大跌，寬度瞬間萎縮
         base_breadth = 50 + (bias_ratio * 5)
         if today_change_pct < -1.0:
-            base_breadth = base_breadth / 2 # 砍半
+            base_breadth = base_breadth / 2 
         data["marketBreadth"] = round(max(10.0, min(90.0, base_breadth)), 1)
 
-        # 大戶流向 (隨 ADR 與 大盤連動)
         data["bigWhaleHoldingRatio"] = round(today_change_pct * 1.5, 2)
 
-        # 🚀 殺手鐧：清洗數據，將所有 NaN 強制轉換為 None (JSON 的 null)
         for key, value in data.items():
             if isinstance(value, float) and math.isnan(value):
                 data[key] = None
@@ -120,8 +118,6 @@ def main():
 
     except Exception as e:
         print(f"❌ 嚴重錯誤：{e}")
-        # 不使用 exit(1) 阻擋 GitHub，直接讓它過，但不會寫入新檔案
-        # 下一次 30 分鐘後會自動重試
 
 if __name__ == "__main__":
     main()

@@ -35,18 +35,29 @@ def main():
         data["maBiasRatio"] = round(bias_ratio, 2)
         print(f"  => 當前大盤: {current_twii:.2f}, 乖離率: {bias_ratio:.2f}%")
 
-        # 2. 真實巴菲特指標 (TWSE OpenAPI 總市值 / 台灣 GDP)
-        print("2. 抓取證交所真實總市值 (計算巴菲特指標)...")
+        # 2. 真實巴菲特指標 (改用 FinMind 抓取台股真實總市值)
+        print("2. 抓取真實總市值 (計算巴菲特指標)...")
         try:
-            twse_url = "https://openapi.twse.com.tw/v1/exchangeReport/FMTQIK"
-            twse_res = requests.get(twse_url, timeout=10).json()
-            # 取得陣列中最後一筆的最新的 MarketCap (總市值)
-            latest_market_cap = int(twse_res[-1]['MarketCap'].replace(',', ''))
-            # 台灣近期 GDP 基準約為 24.5 兆台幣
-            gdp_twd = 24500000000000
-            buffett_indicator = (latest_market_cap / gdp_twd) * 100
-            data["buffettIndicator"] = round(buffett_indicator, 1)
-            print(f"  => 真實總市值: {latest_market_cap}，巴菲特指標: {data['buffettIndicator']}%")
+            start_date = (now - timedelta(days=10)).strftime("%Y-%m-%d")
+            fm_url = f"https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockTotalMarketValue&start_date={start_date}"
+            fm_res = requests.get(fm_url, headers=headers, timeout=10)
+            fm_data = fm_res.json()
+            
+            if fm_data.get('msg') == 'success' and len(fm_data.get('data', [])) > 0:
+                df_market_cap = pd.DataFrame(fm_data['data'])
+                latest_mc_data = df_market_cap.sort_values(by='date').iloc[-1]
+                
+                # 自動抓取除了 'date' 以外的第一個數值欄位 (避免欄位名稱大小寫變動)
+                mc_col = [col for col in df_market_cap.columns if col != 'date'][0]
+                latest_market_cap = int(latest_mc_data[mc_col])
+                
+                # 台灣近期 GDP 基準約為 24.5 兆台幣
+                gdp_twd = 24500000000000
+                buffett_indicator = (latest_market_cap / gdp_twd) * 100
+                data["buffettIndicator"] = round(buffett_indicator, 1)
+                print(f"  => 真實總市值: {latest_market_cap}，巴菲特指標: {data['buffettIndicator']}%")
+            else:
+                raise ValueError("FinMind 回傳總市值資料為空")
         except Exception as e:
             print(f"  ⚠️ 總市值抓取失敗: {e}，回傳 null")
             data["buffettIndicator"] = None
@@ -116,17 +127,25 @@ def main():
             print(f"  ⚠️ 市場寬度抓取失敗: {e}")
             data["marketBreadth"] = None
 
-        # 7. 真實集保大戶持股比率 (連線 TDCC 開放資料)
+        # 7. 真實集保大戶持股比率 (連線 TDCC 開放資料 - 強化欄位防呆)
         print("7. 抓取集保中心大戶持股 (TDCC)...")
         try:
             tdcc_url = "https://smart.tdcc.com.tw/opendata/getOD.ashx?id=1-5"
             res = requests.get(tdcc_url, headers=headers, timeout=30)
             df_tdcc = pd.read_csv(io.StringIO(res.text))
-            # 篩選持股分級 12~15 (大於 400 張的大戶)
-            whale_df = df_tdcc[df_tdcc['持股分級'] >= 12]
-            whale_ratio = whale_df['占集保庫存數比例(%)'].mean()
-            data["bigWhaleHoldingRatio"] = round(whale_ratio, 2)
-            print(f"  => 全市場大戶平均持股: {data['bigWhaleHoldingRatio']}%")
+            
+            # 動態找尋正確欄位名稱 (防禦集保中心更改標題)
+            level_col = next((col for col in df_tdcc.columns if '分級' in col), None)
+            ratio_col = next((col for col in df_tdcc.columns if '比例' in col), None)
+            
+            if level_col and ratio_col:
+                # 篩選持股分級 12~15 (大於 400 張的大戶)
+                whale_df = df_tdcc[df_tdcc[level_col] >= 12]
+                whale_ratio = whale_df[ratio_col].mean()
+                data["bigWhaleHoldingRatio"] = round(whale_ratio, 2)
+                print(f"  => 全市場大戶平均持股: {data['bigWhaleHoldingRatio']}%")
+            else:
+                raise ValueError(f"找不到對應欄位，目前欄位有: {list(df_tdcc.columns)}")
         except Exception as e:
             print(f"  ⚠️ 集保資料抓取失敗: {e}")
             data["bigWhaleHoldingRatio"] = None

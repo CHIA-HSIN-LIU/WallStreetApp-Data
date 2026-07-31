@@ -44,12 +44,12 @@ def main():
             print(f"  ⚠️ ADR 抓取失敗: {e}，啟用備援推算")
             data["tsmcAdrPremium"] = round(bias_ratio * 1.5, 2)
 
-        print("3. 抓取外資期貨空單 (除錯進化版)...")
+        print("3. 抓取外資期貨空單 (料號修正版)...")
         foreign_shorts = None
         try:
-            # 💡 升級點 1：增加 start_date，往前推 10 天，逼迫 API 吐出最近的資料
             start_date = (now - timedelta(days=10)).strftime("%Y-%m-%d")
-            url = f"https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TXX&start_date={start_date}"
+            # 💡 致命錯誤修正：把 data_id=TXX 改成正確的代號 data_id=TX
+            url = f"https://api.finmindtrade.com/api/v4/data?dataset=TaiwanFuturesInstitutionalInvestors&data_id=TX&start_date={start_date}"
             
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -79,7 +79,6 @@ def main():
                     print(f"  ⚠️ FinMind 說 success，但 data 陣列是空的！")
                     raise ValueError("查無指定日期範圍內的資料")
             else:
-                # 💡 升級點 2：直接把 FinMind 拒絕的原始對話印出來
                 print(f"  ⚠️ FinMind API 拒絕請求，官方回傳內容: {json_data}")
                 raise ValueError("API 拒絕提供資料")
                 
@@ -89,7 +88,7 @@ def main():
         
         data["foreignShorts"] = foreign_shorts
 
-        print("4. 計算融資與市場寬度...")
+        print("4. 計算融 ক্ষমতায়與市場寬度...")
         try:
             today_change_pct = ((current_twii - hist_twii['Close'].iloc[-2]) / hist_twii['Close'].iloc[-2]) * 100
         except:

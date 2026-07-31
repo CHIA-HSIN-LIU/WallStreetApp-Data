@@ -44,7 +44,7 @@ def main():
             print(f"  ⚠️ ADR 抓取失敗: {e}，啟用備援推算")
             data["tsmcAdrPremium"] = round(bias_ratio * 1.5, 2)
 
-        print("3. 抓取外資期貨空單 (欄位自適應版)...")
+        print("3. 抓取外資期貨空單 (精準對位版)...")
         foreign_shorts = None
         try:
             start_date = (now - timedelta(days=10)).strftime("%Y-%m-%d")
@@ -64,28 +64,28 @@ def main():
                 if len(json_data.get('data', [])) > 0:
                     df_fut = pd.DataFrame(json_data['data'])
                     
-                    # 💡 檢查必要的最基本欄位 (日期與名稱)
-                    if 'name' in df_fut.columns and 'date' in df_fut.columns:
-                        foreign_fut = df_fut[df_fut['name'] == '外資及陸資'].copy()
+                    # 💡 完全依照 Log 印出的真實欄位名稱進行抓取
+                    if 'institutional_investors' in df_fut.columns and 'date' in df_fut.columns:
+                        # 篩選外資
+                        foreign_fut = df_fut[df_fut['institutional_investors'].str.contains('外資', na=False)].copy()
+                        
                         if not foreign_fut.empty:
                             foreign_fut = foreign_fut.sort_values(by='date')
                             latest_data = foreign_fut.iloc[-1]
                             
-                            # 💡 欄位自適應：如果沒有現成的淨額欄位，我們自己用 (多單 - 空單) 算
-                            if 'open_interest_net_qty' in latest_data:
-                                foreign_shorts = int(latest_data['open_interest_net_qty'])
-                            elif 'long_open_interest' in latest_data and 'short_open_interest' in latest_data:
-                                foreign_shorts = int(latest_data['long_open_interest']) - int(latest_data['short_open_interest'])
+                            # 依照真實欄位名稱計算淨未平倉口數 (多單未平倉 - 空單未平倉)
+                            if 'long_open_interest_balance_volume' in latest_data and 'short_open_interest_balance_volume' in latest_data:
+                                long_oi = int(latest_data['long_open_interest_balance_volume'])
+                                short_oi = int(latest_data['short_open_interest_balance_volume'])
+                                foreign_shorts = long_oi - short_oi
+                                print(f"  => 成功取得外資期貨淨部位: {foreign_shorts} 口 (結算日期: {latest_data['date']})")
                             else:
-                                print(f"  ⚠️ 找不到部位數據！實際收到的資料長這樣: {latest_data.to_dict()}")
-                                raise ValueError("無法計算淨部位")
-                            
-                            print(f"  => 成功取得外資期貨淨部位: {foreign_shorts} 口 (結算日期: {latest_data['date']})")
+                                raise ValueError("找到外資，但缺少未平倉量(balance_volume)欄位")
                         else:
-                            raise ValueError("有撈到資料，但裡面沒有'外資及陸資'的項目")
+                            raise ValueError("有撈到資料，但裡面沒有包含'外資'的項目")
                     else:
                         print(f"  ⚠️ 欄位不符預期！實際收到的欄位有: {list(df_fut.columns)}")
-                        raise ValueError("API回傳格式缺漏 date 或 name")
+                        raise ValueError("API回傳格式缺漏 date 或 institutional_investors")
                 else:
                     print(f"  ⚠️ FinMind 說 success，但 data 陣列是空的！")
                     raise ValueError("查無指定日期範圍內的資料")

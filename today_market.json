@@ -1,10 +1,10 @@
 {
-    "updateTime": "2026-08-20 13:34:00",
-    "maBiasRatio": -0.08,
-    "buffettIndicator": 581.5,
-    "tsmcAdrPremium": 10.97,
+    "updateTime": "2026-08-20 14:51:14",
+    "maBiasRatio": 0.22,
+    "buffettIndicator": 583.2,
+    "tsmcAdrPremium": 10.57,
     "foreignShorts": -81501,
-    "marginMaintenance": 203.4,
+    "marginMaintenance": 203.6,
     "marketBreadth": 60.0,
     "bigWhaleHoldingRatio": 27.21
 }
